@@ -8,8 +8,8 @@ using namespace std;
 int main(int argc,char **argv) {
     Elf32Parser parser;
     parser.parse(argv[1]);
-    parser.patchGot(".rel.dyn", ".dynsym",0x1000,0x00286750);
-    parser.patchGot(".rel.plt", ".dynsym",0x1000,0x00286750);
+    parser.patchGot(".rel.dyn", ".dynsym",0x10000);
+    parser.patchGot(".rel.plt", ".dynsym",0x10000);
     parser.flush();
     return 0;
 }

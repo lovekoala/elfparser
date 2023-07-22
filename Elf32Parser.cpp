@@ -9,6 +9,23 @@
 #include <sys/stat.h>
 #include <string.h>
 using namespace std;
+inline void Elf32Parser::patchAddress(uint32_t orig_target, uint32_t orig_value,uint32_t load_offset) {
+    uint32_t target = orig_target, value = orig_value;
+    for(auto segment: segments) {
+        if(segment.start < target && segment.end > target) {
+            target = orig_target - segment.ftov_offset;
+        }
+        if(segment.start < value && segment.end > value) {
+            value  = orig_value - segment.ftov_offset;
+        }
+    }
+    value += load_offset;
+    cout << hex << "in " << target << "(" << orig_target << ")"
+    << " with value " << value << "(" << orig_value << ")" << endl;
+    uint32_t *patching_addr = (uint32_t *)&file_mmap[target];
+    *patching_addr = value;
+}
+
 bool Elf32Parser::parse(const char *filename) {
     int fd = open(filename,O_RDWR);
     struct stat st;
@@ -39,6 +56,15 @@ bool Elf32Parser::parse(const char *filename) {
     shdr = (Elf32_Shdr *)&file_mmap[this->ehdr->e_shoff];
     sh_string_table = &file_mmap[shdr[ehdr->e_shstrndx].sh_offset];
     string_table = &file_mmap[searchSection(".dynstr")->sh_offset];
+    uint32_t segment_count = ehdr->e_phnum;
+    for(int i = 0;i < segment_count; i++) {
+        SegmentRange segment_range;
+        Elf32_Phdr *segment = &phdr[i];
+        segment_range.ftov_offset = segment->p_vaddr - segment->p_offset;
+        segment_range.start = segment->p_vaddr;
+        segment_range.end = segment->p_vaddr + segment->p_memsz;
+        segments.push_back(segment_range);
+    }
     return true;
 }
 
@@ -52,7 +78,7 @@ Elf32_Shdr *Elf32Parser::searchSection(const char *section_name) {
     return nullptr;
 }
 
-void Elf32Parser::patchGot(const char *rel_name,const char *symbol_name,int offset,int offset_start) {
+void Elf32Parser::patchGot(const char *rel_name,const char *symbol_name,int load_offset) {
     cout << "patching " << rel_name << endl;
     Elf32_Shdr *reldyn_header = searchSection(rel_name);
     int count = reldyn_header->sh_size / reldyn_header->sh_entsize;
@@ -64,15 +90,8 @@ void Elf32Parser::patchGot(const char *rel_name,const char *symbol_name,int offs
         if(sym->st_value == 0) {
             continue;
         }
-        uint32_t patching_offset = reldyns[i].r_offset;
-        if(patching_offset > offset_start) {
-            patching_offset -= offset;
-        }
-        cout << "patch "  << &string_table[sym->st_name]
-        << " in " << hex << patching_offset
-        << " to "<< sym->st_value << endl;
-        uint32_t *patching_addr = (uint32_t *)&file_mmap[patching_offset];
-        *patching_addr = sym->st_value;
+        cout << "patching "  << &string_table[sym->st_name] << ":";
+        patchAddress(reldyns[i].r_offset,sym->st_value,load_offset);
     }
 }
 
